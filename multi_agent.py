@@ -8,29 +8,21 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import tool
 from dotenv import load_dotenv
+from print_messages import pretty_print_messages
 
 load_dotenv()
 
-llm = ChatOpenAI(
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
-    model="gpt-4o-mini",
-    temperature=0.2,
-    max_tokens=2000,  
-    timeout=90
-)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2, max_tokens=2000, timeout=90)
 
 root_path = str(Path(".").resolve())
-print("Using root_dir:", root_path)
-print("Files from os:", os.listdir("."))
-print()
+# print("Using root_dir:", root_path)
+# print("Files from os:", os.listdir("."))
+# print()
 
-fs_backend = FilesystemBackend(
-    root_dir=root_path,
-    virtual_mode=True
-)
+fs_backend = FilesystemBackend(root_dir=root_path, virtual_mode=True)
 
 # ────────────────────────────────────────────────
-# Privileged Writer Sub-Agent 
+# Privileged Writer Sub-Agent
 # ────────────────────────────────────────────────
 writer_agent = create_deep_agent(
     model=llm,
@@ -40,22 +32,24 @@ writer_agent = create_deep_agent(
         "You have full access to all file system tools.\n"
         "Execute the task exactly as described.\n"
         "Return only the result or confirmation — be concise."
-    )
+    ),
 )
+
 
 @tool
 def delegate_write_task(task: str) -> str:
     """Use ONLY when YOUR OWN planning requires creating, editing, renaming or deleting a file.
     Never use it just because the user asked to write something."""
-    print(f"[WRITE DELEGATION] Task: {task[:80]}{'...' if len(task)>80 else ''}")
+    # print(f"[WRITE DELEGATION] Task: {task[:80]}{'...' if len(task)>80 else ''}")
     response = writer_agent.invoke({"messages": [HumanMessage(content=task)]})
     final_msg = response["messages"][-1]
     result = final_msg.content if hasattr(final_msg, "content") else str(final_msg)
-    print(f"[WRITE RESULT] {result[:120]}{'...' if len(result)>120 else ''}")
+    # print(f"[WRITE RESULT] {result[:120]}{'...' if len(result)>120 else ''}")
     return result
 
+
 # ────────────────────────────────────────────────
-# Read-only User-facing Agent 
+# Read-only User-facing Agent
 # ────────────────────────────────────────────────
 read_only_agent = create_deep_agent(
     model=llm,
@@ -80,34 +74,68 @@ read_only_agent = create_deep_agent(
         "  - Always remind the user: 'This is not medical advice. Consult a doctor or pharmacist.'\n"
         "  - Use common scientific knowledge only when files do not provide enough information\n\n"
         "Always use relative paths. Be helpful, accurate, structured and clear."
-    )
+    ),
 )
 
+
 def run_agent(query: str):
-    print("\n" + "═"*90)
+    print("\n" + "═" * 90)
     print(f" QUERY: {query}")
-    print("═"*90 + "\n")
+    print("═" * 90 + "\n")
 
     # We now stream to show reasoning steps
     print("Agent thinking & tool usage:\n")
-    response = read_only_agent.invoke({
-        "messages": [{"role": "user", "content": query}]
-    })
+    events = read_only_agent.stream(
+        {"messages": [HumanMessage(content=query)]},
+        stream_mode=["messages", "updates"],
+        subgraphs=True,
+    )
+    chunk_count = 0
+    for event in events:
+        chunk_count += 1
+        try:
+            # Handle different event tuple structures from LangGraph
+            # Events can be (namespace, mode, chunk) or (mode, chunk)
+            if len(event) == 3:
+                namespace, mode, chunk = event
+            elif len(event) == 2:
+                mode, chunk = event
+                namespace = None
+            else:
+                print(f"⚠️  Unexpected event structure: {event}")
+                continue
+            if mode == "messages":
+                print(f"namespace: {namespace}, chunk: {chunk}")
+            # if mode == "updates":
+            #     # Pass the original event for pretty printing
+            #     if namespace is not None:
+            #         pretty_print_messages((namespace, chunk))
+            #     else:
+            #         pretty_print_messages(chunk)
+        except Exception as chunk_error:
+            # Log chunk processing errors but continue streaming
+            print(f"⚠️  Error processing chunk {chunk_count}: {chunk_error}")
+            import traceback
 
-    final_message = response["messages"][-1]
-    content = getattr(final_message, "content", str(final_message))
+            print(f"   Traceback: {traceback.format_exc()}")
 
-    print("\n" + "═"*90)
-    print(" FINAL RESPONSE ")
-    print("═"*90)
-    print(content.strip())
-    print()
+    # final_message = response["messages"][-1]
+    # content = getattr(final_message, "content", str(final_message))
+
+    # print("\n" + "═" * 90)
+    # print(" FINAL RESPONSE ")
+    # print("═" * 90)
+    # print(content.strip())
+    # print()
+
 
 if __name__ == "__main__":
     # Test cases
     run_agent("Give me the content of paracetamol.md file")
 
-    run_agent("What are the main uses and dosage of paracetamol according to paracetamol.md?")
+    run_agent(
+        "What are the main uses and dosage of paracetamol according to paracetamol.md?"
+    )
 
     # The kind of question we want the agent to handle well
     run_agent(

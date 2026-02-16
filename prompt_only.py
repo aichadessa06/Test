@@ -21,7 +21,6 @@ Question: {question}
 
 
 llm = ChatOpenAI(
-    openai_api_key=os.getenv("OPENAI_API_KEY"),
     model="gpt-4o-mini",
     max_tokens=1000,
     temperature=0.2,
