@@ -1,0 +1,7 @@
+langchain
+langchain-openai
+langchain-core
+langchain-community
+dotenv
+deepagents
+langgraph
