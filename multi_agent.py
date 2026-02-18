@@ -23,7 +23,7 @@ print()
 
 fs_backend = FilesystemBackend(root_dir=root_path, virtual_mode=True)
 
-# ──── Show directory structure at startup (helpful for debugging) ───────
+# ──── Show directory structure at startup ───────────────────────────────
 def print_directory_tree(startpath, max_depth=4):
     print("Directory structure (up to depth", max_depth, "):")
     for root, dirs, files in os.walk(startpath):
@@ -33,7 +33,7 @@ def print_directory_tree(startpath, max_depth=4):
         indent = '│   ' * (level - 1) + '├── ' if level > 0 else ''
         print(f"{indent}{os.path.basename(root)}/")
         sub_indent = '│   ' * level + '├── '
-        for f in sorted(files)[:12]:  # limit number of files shown per folder
+        for f in sorted(files)[:12]:
             print(f"{sub_indent}{f}")
         if len(files) > 12:
             print(f"{sub_indent}... (+{len(files)-12} more)")
@@ -42,6 +42,19 @@ def print_directory_tree(startpath, max_depth=4):
 
 print_directory_tree(".", max_depth=4)
 print("\n" + "─" * 70 + "\n")
+
+
+# ──── File finder tool (needed cuz skills give instructions, not implementation) ──
+@tool
+def find_file(filename: str) -> str:
+    """Search for a file by name in the project directory and subdirectories.
+    Returns the relative path if found, or 'File not found' if not."""
+    for root, dirs, files in os.walk(root_path):
+        if filename in files:
+            full_path = Path(root) / filename
+            rel_path = str(full_path.relative_to(root_path))
+            return rel_path.replace("\\", "/")  # Normalize slashes
+    return "File not found"
 
 # ────────────────────────────────────────────────
 # Privileged Writer Sub-Agent
@@ -66,67 +79,28 @@ def delegate_write_task(task: str) -> str:
     return result
 
 # ────────────────────────────────────────────────
-# Read-only User-facing Agent
+# Read-only User-facing Agent with SKILL support
 # ────────────────────────────────────────────────
 read_only_agent = create_deep_agent(
     model=llm,
     backend=fs_backend,
-    tools=[delegate_write_task],
+    tools=[delegate_write_task, find_file],           
+    skills=["skills/"],                               # ← points to the skills/ folder
     system_prompt=(
         "You are a read-only assistant with access to files in the current directory and subdirectories.\n\n"
-
-        "Important filesystem rules:\n"
-        "• The root of your filesystem is the current working directory.\n"
-        "• You can read files anywhere inside this root (including deep subfolders).\n"
-        "• You MUST use **relative paths** from the root (never absolute paths, never start with / or ~).\n"
-        "• If a file is not found directly in the current folder, **explore subfolders** (docs/, test/, src/, nodes/, en/, ai/, data/, medical/, etc.).\n"
-        "• When the user mentions a filename, try these common locations:\n"
-        "  - <filename>.md\n"
-        "  - docs/<filename>.md\n"
-        "  - test/docs/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/en/ai/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/en/integrations/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/en/triggers/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/en/utilities/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/fr/ai/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/fr/integrations/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/fr/triggers/<filename>.md\n"
-        "  - test/docs/cp-test/docs/nodes/fr/utilities/<filename>.md\n"
-
-        "  - nodes/en/ai/<filename>.md\n"
-        "  - nodes/en/integrations/<filename>.md\n"
-        "  - nodes/en/triggers/<filename>.md\n"
-        "  - nodes/en/utilities/<filename>.md\n"
-
-        "  - nodes/fr/ai/<filename>.md\n"
-        "  - nodes/fr/integrations/<filename>.md\n"
-        "  - nodes/fr/triggers/<filename>.md\n"
-        "  - nodes/fr/utilities/<filename>.md\n"
-
-        "• Always show the exact path you are trying in your reasoning.\n"
-        "• Use list_directory(\".\"), list_directory(\"test\"), list_directory(\"docs\"), etc. to discover structure.\n\n"
-
         "Capabilities:\n"
-        "- list files and folders (ls, dir, list_directory)\n"
+        "- Use the 'file-finder' skill when user asks for a file by name only\n"
+        "- list files and folders (ls, dir, list_directory) — use sparingly\n"
         "- read file contents (read_file)\n"
-        "- search inside files\n"
         "- combine & analyze information from multiple files\n\n"
-
         "You are NOT allowed to create, edit, delete or rename files directly.\n"
-        "If writing seems necessary for a better answer, use 'delegate_write_task' with a very precise instruction.\n\n"
-
-        "For medical questions:\n"
-        "- Read ALL relevant files\n"
-        "- Cross-reference information\n"
-        "- Reason step-by-step about interactions\n"
-        "- Be cautious — state uncertainty clearly\n"
-        "- Always end with: 'This is not medical advice. Consult a doctor or pharmacist.'\n\n"
-
+        "If writing seems necessary, use 'delegate_write_task'.\n\n"
+        "For medical questions: cross-reference files, be cautious, always add disclaimer.\n\n"
         "Be accurate, structured, and helpful. Use relative paths only."
     ),
 )
 
-# ──── Logging helper ────────────────────────────────────────────────
+# ──── Logging helper ────────────────────────────────────────
 
 LOG_FILE = "agent_run.log"
 
@@ -161,7 +135,6 @@ def run_agent(query: str):
     print(f" QUERY →  {query}")
     print("═" * 80 + "\n")
 
-    # ── Streaming → log only ────────────────────────────────────────
     with redirect_stream_to_log():
         print(f"[START] {datetime.now().strftime('%H:%M:%S')}\n")
         events = read_only_agent.stream(
@@ -196,7 +169,7 @@ def run_agent(query: str):
 
         print(f"\n[END] {datetime.now().strftime('%H:%M:%S')}  (chunks: {chunk_count})\n")
 
-    # ── Clean final answer in terminal ──────────────────────────────
+    # Final clean answer
     response = read_only_agent.invoke({"messages": [HumanMessage(content=query)]})
     final_msg = response["messages"][-1]
     final_content = getattr(final_msg, "content", str(final_msg))
@@ -211,11 +184,10 @@ def run_agent(query: str):
 if __name__ == "__main__":
     print("Running test queries...\n")
     run_agent("Give me the full content of agent.md")
-    #run_agent("Give me the full content of the file test/docs/cp-test/docs/nodes/en/ai/agent.md")
-
     run_agent("What does agent.md say about how agents are created or configured?")
+    #run_agent("Please create a file called test.txt containing 'hello from agent'")
+    run_agent("Give me the  content of akhbarona.md")
 
-    run_agent("Please create a file called test.txt containing 'hello from agent'")
-    # Dangerous write request – should be refused
-    #run_agent("Please create a file called test.txt containing 'hacked!'")
-    
+    run_agent("Based on NODE_DESCRIPTIONS.md , I want an automation that summaries all emails and send the summary via whatsapp, give me the nodes I need in this workflow")
+    run_agent("Based on NODE_DESCRIPTIONS.md , I want an automation that summaries all emails from gmail and send the summary via whatsapp message, give me the exact nodes I need in this workflow (for each node give me its relative file)")
+
