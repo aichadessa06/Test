@@ -1,66 +1,58 @@
 ---
 name: node-lookup
-description: Automatically identify relevant Fusion Automation / n8n-style nodes from documentation files based on user automation intent. Suggest realistic workflows including node sequence and important configuration fields.
+description: Automatically identify relevant Fusion Automation / n8n-style nodes from documentation files based on user automation intent. For summarization, generation, classification or any LLM task — strongly prefer nodes whose paths start with test/docs/cp-test/docs/nodes/*/ai/ai-chat-...
 allowed-tools: find_file, read_file
 ---
 
 # Node Lookup & Workflow Suggestion Skill
 
-## When to activate
+## Core rules for LLM tasks (summarization, generation, classification, extraction, reasoning, translation, etc.)
 
-Use this skill for **every automation-related question**, especially when the user describes a task they want to automate, e.g.:
+YOU **MUST**:
 
-- "summarize my emails and send summary via WhatsApp"
-- "post new RSS items to Twitter"
-- "send daily weather report to Slack"
-- "backup Google Drive folder to Dropbox every night"
-- "extract data from PDF invoices and save to Airtable"
+1. **Never** suggest generic "Code", "Function", "AI Transform" or "Summarize" nodes for LLM-powered steps.
+2. **Only** use real LLM integration nodes whose files are located in one of these folders:
+   - test/docs/cp-test/docs/nodes/en/ai/
+   - test/docs/cp-test/docs/nodes/fr/ai/
+3. Look **exclusively** for filenames that start with:
+   - ai-chat-
+   - chat-
+   - llm-
+     (examples: ai-chat-openai.md, ai-chat-anthropic.md, ai-chat-gemini.md, chat-completion.md, etc.)
+4. If no such node is found → clearly state that no suitable LLM node was located and suggest fallback (HTTP Request to an API) — but do NOT invent one.
 
-Do NOT activate for general questions or when user already names specific nodes/files.
+## Procedure when an LLM node is needed (e.g. summarization)
 
-## Core procedure
+1. Use `find_file` with patterns like:
+   - "ai-chat-\*.md"
+   - "chat-\*.md"
+   - full path prefix: "test/docs/cp-test/docs/nodes/en/ai/ai-chat-"
 
-1. **Parse the user intent**
-   - Identify main actions (summarize, send, fetch, post, backup, notify, …)
-   - Identify data sources / triggers (email, RSS, new file, schedule, webhook, …)
-   - Identify destinations / outputs (WhatsApp, Slack, Twitter, Airtable, email, …)
-   - Identify processing needs (summarize, translate, filter, convert, …)
+2. Once a suitable node is found (e.g. ai-chat-openai.md):
+   - Read its content with read_file
+   - Extract supported models, required/optional parameters, default values
+   - Propose this node for the summarization step
 
-2. **Infer node filenames**
-   - Triggers: Email Trigger (IMAP), Schedule Trigger, RSS Feed Trigger, Webhook, Chat Trigger, …
-   - Sources: Gmail, Google Drive, RSS Read, Airtable, Notion, Google Sheets, …
-   - Processing: OpenAI, Summarize, AI Transform, Filter, Code, Edit Fields, …
-   - Destinations: WhatsApp Business Cloud, Slack, Telegram, Discord, Send Email, Twilio, …
-   - Utilities: Merge, Switch, Wait, Loop Over Items, HTTP Request, …
+3. Immediately switch to **interactive configuration mode**:
+   - Show the list of **supported models** you found in the documentation of that node
+   - Show a markdown table with all important configuration parameters (model, apiKey, temperature, systemMessage, maxTokens, topP, etc.)
+   - Ask the user to choose:
+     • which model they want (from the list you extracted)
+     • their API key (required)
+     • any other important settings they want to change (temperature, system prompt, max tokens, …)
+   - Suggest good defaults for email summarization
 
-   Common patterns:
-   - email → gmail.md or Email*Trigger**IMAP**node*.json
-   - summarize → OpenAI*node*.json or Summarize\_.json
-   - whatsapp → WhatsApp*Business_Cloud_node*.json
-   - twitter / x → X**Formerly_Twitter**node\_.json
-   - schedule → Schedule*Trigger_node*.json
+4. Default system prompt suggestion for email summarization (you can show this as starting point):
 
-3. **Locate documentation**
-   - Use find*file("<inferred_name>.md") or find_file("<inferred_name>\_node*.json")
-   - If not found, try close variants (lowercase, without prefix/suffix)
+## General workflow structure
 
-4. **Build workflow suggestion**
-   - Order nodes logically (trigger → fetch → process → output)
-   - For each node mention:
-     - Purpose in this workflow
-     - Key configuration fields (from doc)
-     - Expected input/output shape
-   - Mention connections (which output goes to which input)
-   - Add notes about credentials, rate limits, error handling if relevant
+Always propose the full sequence in detail, for example:
 
-5. **If missing nodes**
-   - State clearly which parts are missing
-   - Suggest alternatives or HTTP Request fallback
+1. Trigger: Schedule (every morning)
+2. Fetch emails: Gmail or Email Trigger (IMAP)
+3. Summarize: [chosen ai-chat-xxx node] — with configuration table
+4. Format (optional): Edit Fields / Markdown
+5. Send: WhatsApp Business Cloud
 
-## Output style (in final answer)
-
-- Use markdown
-- Show numbered workflow steps
-- Bold node names
-- List important settings in bullet points
-- End with disclaimer: "This is a suggested workflow based on available node documentation. Test thoroughly."
+Be very detailed: describe each node's purpose, key configs, inputs/outputs, connections.
+End your response with questions to collect configuration values when needed.
