@@ -12,6 +12,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import tool
 from dotenv import load_dotenv
+from print_messages import pretty_print_messages
 
 load_dotenv()
 
@@ -85,7 +86,6 @@ STRICT RULES:
 - ONLY search inside test/docs/cp-test/docs/nodes/ folders (en/fr subfolders).
 - For summarization, generation, reasoning → ONLY use nodes from ai/ folders that start with ai-chat-, chat-, llm-.
 - When multiple nodes match → ALWAYS:
-  - use list_directory on the folder
   - list all matching files with filename + short description
   - ask clearly: "Multiple options found. Please reply with the number (1, 2, ...) or the full filename you want to use."
 - After user chooses → read the file → show the EXACT parameters table/list from the file.
@@ -161,33 +161,24 @@ def run_conversation(initial_query: str):
                         "max_tokens": 512,
                         "temperature": 0.3,
                         "max_retries": 5
-                    }
+                    },
+                    stream_mode=[ "updates"],
+                    subgraphs=True
                 ):
-                    if "messages" in event:
-                        last_msg = event["messages"][-1]
-                        if isinstance(last_msg, AIMessage):
-                            content = last_msg.content.strip()
-                            print(content)  # show every agent message
-
-                            if content.startswith('[') and content.endswith(']'):
-                                is_json = True
-                                print("\n" + "═"*90)
-                                print("FINAL WORKFLOW JSON")
-                                print("═"*90)
-                                try:
-                                    parsed = json.loads(content)
-                                    print(json.dumps(parsed, indent=2))
-                                except:
-                                    print(content)
-                                print("═"*90 + "\n")
-                            else:
-                                if any(word in content.lower() for word in [
-                                    "please reply", "please enter", "please choose", "reply with", "enter your",
-                                    "choose one", "which one", "what do you", "ok", "confirm", "done", "generate",
-                                    "build", "finished", "save", "proceed", "multiple", "options found"
-                                ]):
-                                    waiting_for_input = True
-
+                    if len(event) == 3:
+                        namespace, mode, chunk = event
+                    elif len(event) == 2:
+                        mode, chunk = event
+                        namespace = None
+                    else:
+                        print(f"⚠️  Unexpected event structure: {event}")
+                        continue
+                    if mode == "updates":
+                        # Pass the original event for pretty printing
+                        if namespace is not None:
+                            pretty_print_messages((namespace, chunk))
+                        else:
+                            pretty_print_messages(chunk)
         except Exception as e:
             print(f"\nAgent error: {str(e)}")
             if "rate limit" in str(e).lower() or "429" in str(e):
